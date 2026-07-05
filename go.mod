@@ -1,6 +1,6 @@
 module ipquery
 
-go 1.22.2
+go 1.26
 
 require github.com/oschwald/geoip2-golang v1.13.0
 
