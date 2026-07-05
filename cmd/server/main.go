@@ -15,7 +15,15 @@ import (
 func main() {
 	godotenv.Load()
 	svc := ipinfo.NewService()
-	h := &handlers.IPHandler{Service: svc}
+
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
+	h := &handlers.IPHandler{
+		Service: svc,
+		Logger:  logger,
+	}
 
 	r := handlers.NewRouter(h)
 
@@ -26,10 +34,6 @@ func main() {
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
-
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo, // Puedes cambiar a LevelDebug para desarrollo
-	}))
 
 	slog.SetDefault(logger)
 	slog.Info("iniciando servidor", "port", os.Getenv("PORT"), "env", "production")
