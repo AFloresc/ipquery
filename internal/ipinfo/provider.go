@@ -16,7 +16,7 @@ func (s *Service) GetInfo(ip string) (*IPData, error) {
 		}
 	}
 
-	// 2. Consulta a API (ejemplo: ipapi.co)
+	// 2. Consulta a API a ip-api.
 	url := fmt.Sprintf("http://ip-api.com/json/%s", ip)
 	resp, err := http.Get(url)
 	if err != nil {
