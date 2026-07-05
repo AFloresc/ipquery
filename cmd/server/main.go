@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
@@ -27,8 +27,15 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 	}
 
-	log.Printf("🚀 IP Service escuchando en el puerto %s con CORS habilitado", os.Getenv("PORT"))
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo, // Puedes cambiar a LevelDebug para desarrollo
+	}))
+
+	slog.SetDefault(logger)
+	slog.Info("iniciando servidor", "port", os.Getenv("PORT"), "env", "production")
+
 	if err := srv.ListenAndServe(); err != nil {
-		log.Fatalf("Error crítico: %v", err)
+		slog.Error("error crítico al iniciar servidor", "error", err)
+		os.Exit(1)
 	}
 }
