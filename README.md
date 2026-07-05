@@ -3,11 +3,30 @@
 Un microservicio de alto rendimiento desarrollado en **Go** para consultar información detallada de direcciones IP en tiempo real. Este servicio actúa como una capa de abstracción entre una API externa y tu aplicación, proporcionando una estructura de datos unificada, caché en memoria y resiliencia ante fallos.
 
 ## 🛠 Características
-* **Caché Eficiente:** Utiliza `sync.Map` para almacenar resultados en memoria por 1 hora, reduciendo latencia y consumo de API.
-* **Resiliencia:** Incluye `timeouts`, manejo de errores y un endpoint de `health check` para despliegues en la nube.
-* **Mapeo de Datos:** Implementa el patrón adaptador para asegurar que la respuesta cumpla con un contrato JSON estricto.
-* **Listo para Cloud:** Configurado para desplegarse fácilmente en plataformas como **Render** o Docker.
+* **Observabilidad Avanzada:** Implementa logs estructurados en formato **JSON** mediante `slog` para facilitar el análisis en plataformas cloud.
+* **Seguridad Profesional:**
+    * Protección contra *IP Spoofing* usando `ClientIPFromXFF`.
+    * Control de tráfico (*Rate Limiting*) para prevenir abusos.
+    * Configuración estricta de **CORS**.
+    * Implementación de *Security Headers* (nosniff, frame-options).
+* **Caché Eficiente:** Utiliza `sync.Map` para almacenar resultados en memoria por 1 hora.
+* **Resiliencia:** Incluye `timeouts` estrictos, manejo de errores (*recoverer*) y un endpoint de `health check`.
 
+## 🏗 Estructura del Proyecto
+El proyecto sigue el estándar de diseño de aplicaciones en Go, separando responsabilidades para facilitar el mantenimiento y escalabilidad:
+
+```text
+IPQUERY/
+├── cmd/
+│   └── server/          # Punto de entrada de la aplicación
+├── internal/
+│   ├── handlers/        # Controladores HTTP y enrutamiento (Router)
+│   ├── ipinfo/          # Lógica de negocio, caché y proveedor
+│   └── logger/          # Middleware de logs estructurados
+├── .env                 # Variables de entorno
+├── Dockerfile           # Configuración para contenedorización
+└── go.mod               # Gestión de dependencias
+```
 ## 🚀 Instalación y Ejecución
 
 1. **Clonar el repositorio:**
@@ -56,7 +75,7 @@ Obtiene información detallada de la IP proporcionada.
 1. Sube tu código a un repositorio en GitHub.
 2. En Render, crea un nuevo Web Service conectando tu repositorio.
 3. Render detectará automáticamente el puerto mediante la variable de entorno PORT.
-4. Añade un Health Check Path configurado en /health.
+4. Añade un Health Check Path configurado en /v1/health.
 
 ## 🏗 Arquitectura
 El proyecto sigue el estándar de diseño de aplicaciones en Go, separando responsabilidades:
