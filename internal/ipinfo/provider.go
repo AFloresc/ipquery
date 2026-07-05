@@ -4,30 +4,26 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
-// APIResponse ajustada para la estructura que devuelve https://ip.guide/
 type APIResponse struct {
-	Network struct {
-		AutonomousSystemNumber       int    `json:"autonomous_system_number"`
-		AutonomousSystemOrganization string `json:"autonomous_system_organization"`
-	} `json:"network"`
+	IP       string `json:"ip"`
 	Location struct {
-		Country struct {
-			Name string `json:"name"`
-			Code string `json:"code"`
-		} `json:"country"`
-		City struct {
-			Name string `json:"name"`
-		} `json:"city"`
-		TimeZone  string  `json:"time_zone"`
+		City      string  `json:"city"`
+		Country   string  `json:"country"`
 		Latitude  float64 `json:"latitude"`
 		Longitude float64 `json:"longitude"`
+		Timezone  string  `json:"time_zone"` // Corregido: ip.guide usa "time_zone"
 	} `json:"location"`
-	Postal struct {
-		Code string `json:"code"`
-	} `json:"postal"`
+	Network struct {
+		AS struct {
+			ASN          int    `json:"asn"`
+			Organization string `json:"organization"`
+			Name         string `json:"name"`
+		} `json:"autonomous_system"`
+	} `json:"network"`
 }
 
 func (s *Service) GetInfo(ip string) (*IPData, error) {
@@ -39,11 +35,14 @@ func (s *Service) GetInfo(ip string) (*IPData, error) {
 		}
 	}
 
-	// 2. Consulta a API con cliente configurado
+	// 2. Consulta a API
 	url := fmt.Sprintf("https://ip.guide/%s", ip)
 	client := &http.Client{Timeout: 5 * time.Second}
 
-	req, _ := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("User-Agent", "IPQuery-Service/1.0")
 
 	resp, err := client.Do(req)
@@ -53,32 +52,32 @@ func (s *Service) GetInfo(ip string) (*IPData, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API error: %d", resp.StatusCode)
+		return nil, fmt.Errorf("provider returned status: %d", resp.StatusCode)
 	}
 
 	var apiResp APIResponse
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error decoding response: %w", err)
 	}
 
-	// 3. Mapeo (Transformación de APIResponse de ip.guide a tu IPData)
+	// 3. Mapeo a IPData
 	data := &IPData{
-		IP: ip,
+		IP: apiResp.IP,
 		ISP: ISPInfo{
-			ASN: fmt.Sprintf("AS%d", apiResp.Network.AutonomousSystemNumber),
-			Org: apiResp.Network.AutonomousSystemOrganization,
-			ISP: apiResp.Network.AutonomousSystemOrganization,
+			ASN: fmt.Sprintf("AS%d", apiResp.Network.AS.ASN),
+			Org: apiResp.Network.AS.Organization,
+			ISP: apiResp.Network.AS.Name,
 		},
 		Location: LocationInfo{
-			Country:     apiResp.Location.Country.Name,
-			CountryCode: apiResp.Location.Country.Code,
-			City:        apiResp.Location.City.Name,
-			State:       "", // ip.guide a veces no devuelve region/state
-			Zipcode:     apiResp.Postal.Code,
+			Country:     apiResp.Location.Country,
+			CountryCode: "N/A", // Valor por defecto amigable
+			City:        apiResp.Location.City,
+			State:       "N/A",
+			Zipcode:     "N/A",
 			Latitude:    apiResp.Location.Latitude,
 			Longitude:   apiResp.Location.Longitude,
-			Timezone:    apiResp.Location.TimeZone,
-			Localtime:   time.Now().Format("2006-01-02T15:04:05"),
+			Timezone:    apiResp.Location.Timezone,
+			Localtime:   time.Now().Format(time.RFC3339), // Formato estándar ISO
 		},
 		Risk: RiskInfo{
 			IsMobile:     false,
@@ -90,11 +89,27 @@ func (s *Service) GetInfo(ip string) (*IPData, error) {
 		},
 	}
 
-	// 4. Guardar en caché
+	// 4. Caché
 	s.cache.Store(ip, CacheEntry{
 		Data:      data,
 		ExpiresAt: time.Now().Add(1 * time.Hour),
 	})
 
 	return data, nil
+}
+
+func detectRisk(org string, asn int) RiskInfo {
+	risk := RiskInfo{}
+
+	// Lógica simple de detección (puedes ampliar esta lista)
+	if strings.Contains(org, "Cloud") || strings.Contains(org, "Amazon") {
+		risk.IsDatacenter = true
+		risk.RiskScore = 50
+	}
+
+	if strings.Contains(org, "Vodafone") || strings.Contains(org, "Movistar") {
+		risk.IsMobile = true
+	}
+
+	return risk
 }
