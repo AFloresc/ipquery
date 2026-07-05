@@ -1,8 +1,12 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
+	"os"
 	"time"
+
+	mylogger "ipquery/internal/logger"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -11,7 +15,10 @@ import (
 
 // NewRouter configura y retorna el enrutador
 func NewRouter(h *IPHandler) http.Handler {
+
 	r := chi.NewRouter()
+
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 	// CORS
 	c := cors.New(cors.Options{
@@ -28,6 +35,8 @@ func NewRouter(h *IPHandler) http.Handler {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
+
+	r.Use(mylogger.NewStructuredLogger(logger))
 
 	// Rutas
 	r.Route("/v1", func(r chi.Router) {
