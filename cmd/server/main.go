@@ -10,9 +10,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	godotenv.Load()
 	// 1. Inicialización de dependencias
 	// Creamos el servicio que maneja la lógica de API + Caché
 	svc := ipinfo.NewService()

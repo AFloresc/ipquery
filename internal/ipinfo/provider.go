@@ -8,26 +8,25 @@ import (
 	"time"
 )
 
+// APIResponse mapea la respuesta gratuita de ip-api.com
 type APIResponse struct {
-	IP       string `json:"ip"`
-	Location struct {
-		City      string  `json:"city"`
-		Country   string  `json:"country"`
-		Latitude  float64 `json:"latitude"`
-		Longitude float64 `json:"longitude"`
-		Timezone  string  `json:"time_zone"` // Corregido: ip.guide usa "time_zone"
-	} `json:"location"`
-	Network struct {
-		AS struct {
-			ASN          int    `json:"asn"`
-			Organization string `json:"organization"`
-			Name         string `json:"name"`
-		} `json:"autonomous_system"`
-	} `json:"network"`
+	Status      string  `json:"status"`
+	Message     string  `json:"message"`
+	Query       string  `json:"query"`
+	Country     string  `json:"country"`
+	CountryCode string  `json:"countryCode"`
+	City        string  `json:"city"`
+	RegionName  string  `json:"regionName"`
+	Zip         string  `json:"zip"`
+	Lat         float64 `json:"lat"`
+	Lon         float64 `json:"lon"`
+	Timezone    string  `json:"timezone"`
+	ISP         string  `json:"isp"`
+	AS          string  `json:"as"`
 }
 
 func (s *Service) GetInfo(ip string) (*IPData, error) {
-	// 1. Verificación de caché
+	// 1. Caché
 	if val, ok := s.cache.Load(ip); ok {
 		entry := val.(CacheEntry)
 		if time.Now().Before(entry.ExpiresAt) {
@@ -35,79 +34,77 @@ func (s *Service) GetInfo(ip string) (*IPData, error) {
 		}
 	}
 
-	// 2. Consulta a API
-	url := fmt.Sprintf("https://ip.guide/%s", ip)
+	// 2. Consulta a API (ip-api.com no requiere token)
+	url := fmt.Sprintf("http://ip-api.com/json/%s?fields=status,message,query,country,countryCode,city,regionName,zip,lat,lon,timezone,isp,as", ip)
+
 	client := &http.Client{Timeout: 5 * time.Second}
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "IPQuery-Service/1.0")
-
-	resp, err := client.Do(req)
+	resp, err := client.Get(url)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("provider returned status: %d", resp.StatusCode)
-	}
-
 	var apiResp APIResponse
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		return nil, fmt.Errorf("error decoding response: %w", err)
+		return nil, err
 	}
 
-	// 3. Mapeo a IPData
+	if apiResp.Status == "fail" {
+		return nil, fmt.Errorf("API error: %s", apiResp.Message)
+	}
+
+	// 3. Lógica de Detección de Riesgo (Basada en ISP/ASN)
+	risk := detectRisk(apiResp.ISP, apiResp.AS)
+
+	// 4. Mapeo a IPData
 	data := &IPData{
-		IP: apiResp.IP,
+		IP: apiResp.Query,
 		ISP: ISPInfo{
-			ASN: fmt.Sprintf("AS%d", apiResp.Network.AS.ASN),
-			Org: apiResp.Network.AS.Organization,
-			ISP: apiResp.Network.AS.Name,
+			ASN: apiResp.AS,
+			ISP: apiResp.ISP,
+			Org: apiResp.ISP,
 		},
 		Location: LocationInfo{
-			Country:     apiResp.Location.Country,
-			CountryCode: "N/A", // Valor por defecto amigable
-			City:        apiResp.Location.City,
-			State:       "N/A",
-			Zipcode:     "N/A",
-			Latitude:    apiResp.Location.Latitude,
-			Longitude:   apiResp.Location.Longitude,
-			Timezone:    apiResp.Location.Timezone,
-			Localtime:   time.Now().Format(time.RFC3339), // Formato estándar ISO
+			Country:     apiResp.Country,
+			CountryCode: apiResp.CountryCode,
+			City:        apiResp.City,
+			State:       apiResp.RegionName,
+			Zipcode:     apiResp.Zip,
+			Latitude:    apiResp.Lat,
+			Longitude:   apiResp.Lon,
+			Timezone:    apiResp.Timezone,
+			Localtime:   time.Now().Format("2006-01-02T15:04:05"),
 		},
-		Risk: RiskInfo{
-			IsMobile:     false,
-			IsVPN:        false,
-			IsTor:        false,
-			IsProxy:      false,
-			IsDatacenter: false,
-			RiskScore:    0,
-		},
+		Risk: risk,
 	}
 
-	// 4. Caché
-	s.cache.Store(ip, CacheEntry{
-		Data:      data,
-		ExpiresAt: time.Now().Add(1 * time.Hour),
-	})
-
+	s.cache.Store(ip, CacheEntry{Data: data, ExpiresAt: time.Now().Add(1 * time.Hour)})
 	return data, nil
 }
 
-func detectRisk(org string, asn int) RiskInfo {
-	risk := RiskInfo{}
+// detectRisk analiza el nombre del proveedor para marcar riesgos
+func detectRisk(isp, asn string) RiskInfo {
+	info := strings.ToLower(isp + " " + asn)
+	risk := RiskInfo{
+		IsMobile:     false,
+		IsVPN:        false,
+		IsTor:        false,
+		IsProxy:      false,
+		IsDatacenter: false,
+		RiskScore:    0,
+	}
 
-	// Lógica simple de detección (puedes ampliar esta lista)
-	if strings.Contains(org, "Cloud") || strings.Contains(org, "Amazon") {
+	// Lista de palabras clave detectables
+	if strings.Contains(info, "vpn") || strings.Contains(info, "proxy") {
+		risk.IsVPN = true
+		risk.IsProxy = true
+		risk.RiskScore = 70
+	}
+	if strings.Contains(info, "amazon") || strings.Contains(info, "google cloud") || strings.Contains(info, "digitalocean") || strings.Contains(info, "ovh") {
 		risk.IsDatacenter = true
 		risk.RiskScore = 50
 	}
-
-	if strings.Contains(org, "Vodafone") || strings.Contains(org, "Movistar") {
+	if strings.Contains(info, "vodafone") || strings.Contains(info, "movistar") || strings.Contains(info, "orange") || strings.Contains(info, "t-mobile") {
 		risk.IsMobile = true
 	}
 
