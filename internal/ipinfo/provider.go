@@ -7,22 +7,27 @@ import (
 	"time"
 )
 
-// APIResponse es la estructura interna para mapear el JSON que devuelve ip-api.com
+// APIResponse ajustada para la estructura que devuelve https://ip.guide/
 type APIResponse struct {
-	Status      string  `json:"status"`
-	Message     string  `json:"message"`
-	Query       string  `json:"query"`
-	Country     string  `json:"country"`
-	CountryCode string  `json:"countryCode"`
-	RegionName  string  `json:"regionName"`
-	City        string  `json:"city"`
-	Zip         string  `json:"zip"`
-	Lat         float64 `json:"lat"`
-	Lon         float64 `json:"lon"`
-	Timezone    string  `json:"timezone"`
-	ISP         string  `json:"isp"`
-	Org         string  `json:"org"`
-	AS          string  `json:"as"`
+	Network struct {
+		AutonomousSystemNumber       int    `json:"autonomous_system_number"`
+		AutonomousSystemOrganization string `json:"autonomous_system_organization"`
+	} `json:"network"`
+	Location struct {
+		Country struct {
+			Name string `json:"name"`
+			Code string `json:"code"`
+		} `json:"country"`
+		City struct {
+			Name string `json:"name"`
+		} `json:"city"`
+		TimeZone  string  `json:"time_zone"`
+		Latitude  float64 `json:"latitude"`
+		Longitude float64 `json:"longitude"`
+	} `json:"location"`
+	Postal struct {
+		Code string `json:"code"`
+	} `json:"postal"`
 }
 
 func (s *Service) GetInfo(ip string) (*IPData, error) {
@@ -34,9 +39,14 @@ func (s *Service) GetInfo(ip string) (*IPData, error) {
 		}
 	}
 
-	// 2. Consulta a API
-	url := fmt.Sprintf("http://ip-api.com/json/%s", ip)
-	resp, err := http.Get(url)
+	// 2. Consulta a API con cliente configurado
+	url := fmt.Sprintf("https://ip.guide/%s", ip)
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("User-Agent", "IPQuery-Service/1.0")
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -51,27 +61,23 @@ func (s *Service) GetInfo(ip string) (*IPData, error) {
 		return nil, err
 	}
 
-	if apiResp.Status == "fail" {
-		return nil, fmt.Errorf("api error: %s", apiResp.Message)
-	}
-
-	// 3. Mapeo (Transformación de APIResponse a tu IPData oficial)
+	// 3. Mapeo (Transformación de APIResponse de ip.guide a tu IPData)
 	data := &IPData{
-		IP: apiResp.Query,
+		IP: ip,
 		ISP: ISPInfo{
-			ASN: apiResp.AS,
-			Org: apiResp.Org,
-			ISP: apiResp.ISP,
+			ASN: fmt.Sprintf("AS%d", apiResp.Network.AutonomousSystemNumber),
+			Org: apiResp.Network.AutonomousSystemOrganization,
+			ISP: apiResp.Network.AutonomousSystemOrganization,
 		},
 		Location: LocationInfo{
-			Country:     apiResp.Country,
-			CountryCode: apiResp.CountryCode,
-			City:        apiResp.City,
-			State:       apiResp.RegionName,
-			Zipcode:     apiResp.Zip,
-			Latitude:    apiResp.Lat,
-			Longitude:   apiResp.Lon,
-			Timezone:    apiResp.Timezone,
+			Country:     apiResp.Location.Country.Name,
+			CountryCode: apiResp.Location.Country.Code,
+			City:        apiResp.Location.City.Name,
+			State:       "", // ip.guide a veces no devuelve region/state
+			Zipcode:     apiResp.Postal.Code,
+			Latitude:    apiResp.Location.Latitude,
+			Longitude:   apiResp.Location.Longitude,
+			Timezone:    apiResp.Location.TimeZone,
 			Localtime:   time.Now().Format("2006-01-02T15:04:05"),
 		},
 		Risk: RiskInfo{
