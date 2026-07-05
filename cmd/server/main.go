@@ -5,6 +5,7 @@ import (
 	"ipquery/internal/ipinfo"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -32,12 +33,22 @@ func main() {
 	// 3. Rutas
 	r.Route("/v1", func(r chi.Router) {
 		r.Get("/ip/{ip}", h.GetIPInfo)
+		r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK"))
+		})
 	})
 
-	// 4. Configuración del servidor (Senior Approach)
+	// 4. Obtener puerto de la variable de entorno (Render lo inyecta automáticamente)
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // Fallback local
+	}
+
+	// 5. Configuración del servidor (Senior Approach)
 	// Definimos explícitamente timeouts para evitar ataques de Slowloris
 	srv := &http.Server{
-		Addr:         ":8080",
+		Addr:         ":" + port, // Usamos el puerto dinámico
 		Handler:      r,
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,

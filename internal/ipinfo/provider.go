@@ -7,6 +7,24 @@ import (
 	"time"
 )
 
+// APIResponse es la estructura interna para mapear el JSON que devuelve ip-api.com
+type APIResponse struct {
+	Status      string  `json:"status"`
+	Message     string  `json:"message"`
+	Query       string  `json:"query"`
+	Country     string  `json:"country"`
+	CountryCode string  `json:"countryCode"`
+	RegionName  string  `json:"regionName"`
+	City        string  `json:"city"`
+	Zip         string  `json:"zip"`
+	Lat         float64 `json:"lat"`
+	Lon         float64 `json:"lon"`
+	Timezone    string  `json:"timezone"`
+	ISP         string  `json:"isp"`
+	Org         string  `json:"org"`
+	AS          string  `json:"as"`
+}
+
 func (s *Service) GetInfo(ip string) (*IPData, error) {
 	// 1. Verificación de caché
 	if val, ok := s.cache.Load(ip); ok {
@@ -16,7 +34,7 @@ func (s *Service) GetInfo(ip string) (*IPData, error) {
 		}
 	}
 
-	// 2. Consulta a API a ip-api.
+	// 2. Consulta a API
 	url := fmt.Sprintf("http://ip-api.com/json/%s", ip)
 	resp, err := http.Get(url)
 	if err != nil {
@@ -28,16 +46,49 @@ func (s *Service) GetInfo(ip string) (*IPData, error) {
 		return nil, fmt.Errorf("API error: %d", resp.StatusCode)
 	}
 
-	var data IPData
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	var apiResp APIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
 		return nil, err
 	}
 
-	// 3. Guardar en caché por 1 hora
+	if apiResp.Status == "fail" {
+		return nil, fmt.Errorf("api error: %s", apiResp.Message)
+	}
+
+	// 3. Mapeo (Transformación de APIResponse a tu IPData oficial)
+	data := &IPData{
+		IP: apiResp.Query,
+		ISP: ISPInfo{
+			ASN: apiResp.AS,
+			Org: apiResp.Org,
+			ISP: apiResp.ISP,
+		},
+		Location: LocationInfo{
+			Country:     apiResp.Country,
+			CountryCode: apiResp.CountryCode,
+			City:        apiResp.City,
+			State:       apiResp.RegionName,
+			Zipcode:     apiResp.Zip,
+			Latitude:    apiResp.Lat,
+			Longitude:   apiResp.Lon,
+			Timezone:    apiResp.Timezone,
+			Localtime:   time.Now().Format("2006-01-02T15:04:05"),
+		},
+		Risk: RiskInfo{
+			IsMobile:     false,
+			IsVPN:        false,
+			IsTor:        false,
+			IsProxy:      false,
+			IsDatacenter: false,
+			RiskScore:    0,
+		},
+	}
+
+	// 4. Guardar en caché
 	s.cache.Store(ip, CacheEntry{
-		Data:      &data,
+		Data:      data,
 		ExpiresAt: time.Now().Add(1 * time.Hour),
 	})
 
-	return &data, nil
+	return data, nil
 }
